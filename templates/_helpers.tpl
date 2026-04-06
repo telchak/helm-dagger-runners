@@ -17,14 +17,15 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 
 {{/*
-Labels for AutoscalingRunnerSet objects — omits app.kubernetes.io/version
-because ARC controller uses that label for its own version compatibility
-check and deletes runner sets where the value doesn't match the controller
-build version. The Dagger version is tracked separately via dagger.io/version.
+Labels for AutoscalingRunnerSet objects.
+Sets app.kubernetes.io/version to .Values.arcControllerVersion so that the
+ARC controller's version compatibility check passes (it deletes runner sets
+whose label value does not match the controller's own build version).
 */}}
 {{- define "dagger-runners.runnerLabels" -}}
 app.kubernetes.io/name: {{ .Chart.Name }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Values.arcControllerVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}

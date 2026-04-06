@@ -45,6 +45,12 @@ persistentCache:
 # Leave empty to disable.
 daggerCloudToken: ""
 
+# -- ARC controller version deployed in the cluster.
+# Must match the gha-runner-scale-set-controller chart version — ARC deletes
+# AutoscalingRunnerSet objects whose app.kubernetes.io/version label does not
+# match the controller's own build version.
+arcControllerVersion: ""
+
 # =============================================================================
 # GitHub Provider Configuration
 # =============================================================================
