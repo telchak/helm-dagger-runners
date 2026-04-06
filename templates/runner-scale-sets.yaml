@@ -44,7 +44,7 @@ metadata:
   name: dagger-v{{ $vDashed }}{{ $nameSuffix }}
   namespace: {{ $root.Release.Namespace }}
   labels:
-    {{- include "dagger-runners.labels" $root | nindent 4 }}
+    {{- include "dagger-runners.runnerLabels" $root | nindent 4 }}
     app.kubernetes.io/component: runner-scale-set
     dagger.io/version: {{ $version | quote }}
 spec:
@@ -158,7 +158,7 @@ metadata:
   name: dagger-v{{ $minorDashed }}-alias{{ $nameSuffix }}
   namespace: {{ $root.Release.Namespace }}
   labels:
-    {{- include "dagger-runners.labels" $root | nindent 4 }}
+    {{- include "dagger-runners.runnerLabels" $root | nindent 4 }}
     app.kubernetes.io/component: runner-scale-set
     dagger.io/alias-for: {{ $version | quote }}
 spec:
@@ -270,7 +270,7 @@ metadata:
   name: dagger-latest{{ $nameSuffix }}
   namespace: {{ $root.Release.Namespace }}
   labels:
-    {{- include "dagger-runners.labels" $root | nindent 4 }}
+    {{- include "dagger-runners.runnerLabels" $root | nindent 4 }}
     app.kubernetes.io/component: runner-scale-set
     dagger.io/alias-for: {{ $latestVersion | quote }}
 spec:
