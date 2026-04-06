@@ -1,0 +1,39 @@
+{{- if eq .Values.provider "github" }}
+---
+# Allow the ARC controller to manage Roles, RoleBindings, ServiceAccounts,
+# and Pods in its own namespace (arc-systems). This is required for the
+# AutoscalingListener controller to create listener pods and their RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arc-controller-listener-manager
+  namespace: {{ .Values.arcControllerNamespace }}
+  labels:
+    {{- include "dagger-runners.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-controller-listener-manager
+  namespace: {{ .Values.arcControllerNamespace }}
+  labels:
+    {{- include "dagger-runners.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.arcControllerServiceAccount }}
+    namespace: {{ .Values.arcControllerNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: arc-controller-listener-manager
+{{- end }}
