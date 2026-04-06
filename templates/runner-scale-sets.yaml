@@ -65,7 +65,7 @@ spec:
       initContainers:
         - name: init-runner-externals
           image: {{ $root.Values.runner.image }}
-          imagePullPolicy: {{ include "dagger-runners.imagePullPolicy" $root.Values.runner.image }}
+          imagePullPolicy: IfNotPresent
           command: ["cp"]
           args: ["-r", "-v", "/home/runner/externals/.", "/home/runner/tmpDir/"]
           volumeMounts:
@@ -84,7 +84,7 @@ spec:
       containers:
         - name: runner
           image: {{ $root.Values.runner.image }}
-          imagePullPolicy: {{ include "dagger-runners.imagePullPolicy" $root.Values.runner.image }}
+          imagePullPolicy: IfNotPresent
           command: ["/home/runner/run.sh"]
           env:
             - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
@@ -180,7 +180,7 @@ spec:
       initContainers:
         - name: init-runner-externals
           image: {{ $root.Values.runner.image }}
-          imagePullPolicy: {{ include "dagger-runners.imagePullPolicy" $root.Values.runner.image }}
+          imagePullPolicy: IfNotPresent
           command: ["cp"]
           args: ["-r", "-v", "/home/runner/externals/.", "/home/runner/tmpDir/"]
           volumeMounts:
@@ -199,7 +199,7 @@ spec:
       containers:
         - name: runner
           image: {{ $root.Values.runner.image }}
-          imagePullPolicy: {{ include "dagger-runners.imagePullPolicy" $root.Values.runner.image }}
+          imagePullPolicy: IfNotPresent
           command: ["/home/runner/run.sh"]
           env:
             - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
@@ -293,7 +293,7 @@ spec:
       initContainers:
         - name: init-runner-externals
           image: {{ $root.Values.runner.image }}
-          imagePullPolicy: {{ include "dagger-runners.imagePullPolicy" $root.Values.runner.image }}
+          imagePullPolicy: IfNotPresent
           command: ["cp"]
           args: ["-r", "-v", "/home/runner/externals/.", "/home/runner/tmpDir/"]
           volumeMounts:
@@ -312,7 +312,7 @@ spec:
       containers:
         - name: runner
           image: {{ $root.Values.runner.image }}
-          imagePullPolicy: {{ include "dagger-runners.imagePullPolicy" $root.Values.runner.image }}
+          imagePullPolicy: IfNotPresent
           command: ["/home/runner/run.sh"]
           env:
             - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
