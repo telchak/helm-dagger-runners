@@ -45,6 +45,11 @@ persistentCache:
 # Leave empty to disable.
 daggerCloudToken: ""
 
+# -- Namespace where the ARC controller is deployed.
+arcControllerNamespace: "arc-systems"
+# -- Service account name of the ARC controller.
+arcControllerServiceAccount: "arc-controller-gha-rs-controller"
+
 # -- ARC controller version deployed in the cluster.
 # Must match the gha-runner-scale-set-controller chart version — ARC deletes
 # AutoscalingRunnerSet objects whose app.kubernetes.io/version label does not
