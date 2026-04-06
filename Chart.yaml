@@ -6,7 +6,7 @@ description: >-
   AutoscalingRunnerSet CRs for ARC, and supporting RBAC and cleanup jobs.
   Requires the ARC controller to be installed separately.
 type: application
-version: 0.1.5
+version: 0.1.6
 appVersion: "0.20.3"
 home: https://github.com/telchak/helm-dagger-runners
 keywords:
