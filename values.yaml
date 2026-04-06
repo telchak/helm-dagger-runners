@@ -1,0 +1,109 @@
+# =============================================================================
+# Dagger Runners Helm Chart — values.yaml
+# =============================================================================
+
+# -- CI provider. Currently only "github" is implemented.
+# Future: "gitlab" for GitLab Runner integration.
+provider: github
+
+# =============================================================================
+# Dagger Engine
+# =============================================================================
+
+# -- List of Dagger engine versions to deploy. Each version gets its own
+# engine instance and corresponding runner scale sets.
+# Runner labels are auto-generated:
+#   - dagger-v0.20.3  (exact match)
+#   - dagger-v0.20    (minor alias, points to latest patch in that minor)
+#   - dagger-latest   (always the highest version in this list)
+daggerVersions:
+  - "0.20.3"
+
+# -- Engine deployment mode.
+# "statefulset": one engine per version with PVC cache (recommended).
+# "daemonset":   one engine per node with ephemeral hostPath cache.
+engineMode: statefulset
+
+engine:
+  image:
+    registry: registry.dagger.io
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "8Gi"
+  annotations:
+    cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+
+# -- Persistent cache settings (statefulset mode only).
+persistentCache:
+  size: "100Gi"
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+
+# -- Dagger Cloud token for Magicache distributed caching.
+# Leave empty to disable.
+daggerCloudToken: ""
+
+# =============================================================================
+# GitHub Provider Configuration
+# =============================================================================
+
+github:
+  # -- GitHub organization or repository URL.
+  configUrl: ""
+
+  # -- GitHub App authentication.
+  app:
+    id: ""
+    installationId: ""
+    privateKey: ""
+    # -- Use an existing secret instead of creating one from values above.
+    # The secret must contain keys: github_app_id, github_app_installation_id,
+    # github_app_private_key.
+    existingSecretName: ""
+    # -- Name for the auto-created secret (when existingSecretName is empty).
+    secretName: "gh-app-pre-defined-secret"
+
+# =============================================================================
+# Runner Configuration
+# =============================================================================
+
+runner:
+  # -- Container image for the GitHub Actions runner.
+  image: "ghcr.io/actions/actions-runner:latest"
+
+  # -- Minimum runners per exact-version scale set.
+  minRunners: 18
+  # -- Maximum runners per scale set.
+  maxRunners: 18
+  # -- Minimum runners for alias scale sets (minor + latest).
+  # When null, inherits minRunners.
+  aliasMinRunners: 0
+
+  # -- Size templates for runner pods. Each key becomes a label suffix.
+  # Use "" (empty string key) for the default size (no suffix).
+  # Runner pods are lightweight — all build work is offloaded to the Dagger engine.
+  sizeTemplates:
+    "":
+      requests:
+        cpu: "50m"
+        memory: "256Mi"
+      limits: {}
+
+# =============================================================================
+# Pod Cleanup CronJob
+# =============================================================================
+
+podCleanup:
+  enabled: true
+  schedule: "0 * * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+
+# =============================================================================
+# Images
+# =============================================================================
+
+# -- kubectl image used by cleanup CronJob and StatefulSet init container.
+kubectlImage: "bitnami/kubectl:latest"

@@ -1,0 +1,62 @@
+{{/*
+Dagger Engine — one Helm release per version.
+Rendered as Flux HelmRelease CRDs so the GitOps controller
+manages the upstream dagger-helm chart lifecycle.
+
+Requires a HelmRepository "dagger" pointing to oci://registry.dagger.io
+to exist in the same namespace or in flux-system.
+*/}}
+{{- range .Values.daggerVersions }}
+{{- $version := . }}
+{{- $vDashed := replace "." "-" $version }}
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: dagger-engine-v{{ $vDashed }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "dagger-runners.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: dagger-engine
+    dagger.io/version: {{ $version | quote }}
+spec:
+  interval: 30m
+  timeout: 10m
+  chart:
+    spec:
+      chart: dagger-helm
+      version: {{ $version | quote }}
+      sourceRef:
+        kind: HelmRepository
+        name: dagger
+        namespace: flux-system
+  values:
+    engine:
+      kind: {{ eq $.Values.engineMode "daemonset" | ternary "DaemonSet" "StatefulSet" }}
+      annotations:
+        {{- toYaml $.Values.engine.annotations | nindent 8 }}
+      image:
+        ref: {{ $.Values.engine.image.registry }}/engine:v{{ $version }}
+      resources:
+        requests:
+          {{- toYaml $.Values.engine.resources.requests | nindent 10 }}
+      hostPath:
+        dataVolume:
+          enabled: {{ eq $.Values.engineMode "daemonset" }}
+      statefulSet:
+        persistentVolumeClaim:
+          enabled: {{ eq $.Values.engineMode "statefulset" }}
+          accessModes:
+            {{- toYaml $.Values.persistentCache.accessModes | nindent 12 }}
+          resources:
+            requests:
+              storage: {{ $.Values.persistentCache.size | quote }}
+          {{- if $.Values.persistentCache.storageClassName }}
+          storageClassName: {{ $.Values.persistentCache.storageClassName | quote }}
+          {{- end }}
+    {{- if $.Values.daggerCloudToken }}
+    magicache:
+      enabled: true
+      token: {{ $.Values.daggerCloudToken | quote }}
+    {{- end }}
+{{- end }}

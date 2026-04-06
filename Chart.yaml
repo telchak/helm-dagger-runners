@@ -1,0 +1,17 @@
+apiVersion: v2
+name: dagger-runners
+description: >-
+  Dagger CI engines with GitHub Actions Runner Controller (ARC) scale sets.
+  Deploys Dagger engine StatefulSets/DaemonSets with configurable cache,
+  AutoscalingRunnerSet CRs for ARC, and supporting RBAC and cleanup jobs.
+  Requires the ARC controller to be installed separately.
+type: application
+version: 0.1.0
+appVersion: "0.20.3"
+home: https://github.com/telchak/helm-dagger-runners
+keywords:
+  - dagger
+  - ci
+  - github-actions
+  - arc
+  - runners

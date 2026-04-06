@@ -1,0 +1,29 @@
+{{- if .Values.podCleanup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "dagger-runners.fullname" . }}-failed-pod-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dagger-runners.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.podCleanup.schedule | quote }}
+  successfulJobsHistoryLimit: {{ .Values.podCleanup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.podCleanup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: pod-cleanup
+          containers:
+            - name: cleanup
+              image: {{ .Values.kubectlImage }}
+              command: ["sh", "-c"]
+              args:
+                - >-
+                  kubectl delete pods
+                  --field-selector=status.phase=Failed
+                  -n {{ .Release.Namespace }}
+                  --ignore-not-found
+          restartPolicy: OnFailure
+{{- end }}
