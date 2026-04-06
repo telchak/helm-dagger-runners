@@ -74,6 +74,7 @@ spec:
         {{- if eq $engineMode "statefulset" }}
         - name: init-kubectl
           image: {{ $root.Values.kubectlImage }}
+          imagePullPolicy: IfNotPresent
           command: ["cp"]
           args: ["/opt/bitnami/kubectl/bin/kubectl", "/shared-bin/kubectl"]
           volumeMounts:
@@ -188,6 +189,7 @@ spec:
         {{- if eq $engineMode "statefulset" }}
         - name: init-kubectl
           image: {{ $root.Values.kubectlImage }}
+          imagePullPolicy: IfNotPresent
           command: ["cp"]
           args: ["/opt/bitnami/kubectl/bin/kubectl", "/shared-bin/kubectl"]
           volumeMounts:
@@ -300,6 +302,7 @@ spec:
         {{- if eq $engineMode "statefulset" }}
         - name: init-kubectl
           image: {{ $root.Values.kubectlImage }}
+          imagePullPolicy: IfNotPresent
           command: ["cp"]
           args: ["/opt/bitnami/kubectl/bin/kubectl", "/shared-bin/kubectl"]
           volumeMounts:

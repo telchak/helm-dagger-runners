@@ -117,4 +117,4 @@ podCleanup:
 # =============================================================================
 
 # -- kubectl image used by cleanup CronJob and StatefulSet init container.
-kubectlImage: "registry.bitnami.com/bitnami/kubectl:1.32"
+kubectlImage: "bitnami/kubectl:latest"
