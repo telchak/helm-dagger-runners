@@ -12,6 +12,12 @@ Each is cross-multiplied with sizeTemplates (if defined).
 
 {{- $root := . }}
 {{- $engineMode := .Values.engineMode }}
+
+{{/* Fail fast on floating tags — see the helper for why this is fatal here. */}}
+{{- if not .Values.allowFloatingTags }}
+{{- include "dagger-runners.requirePinnedImage" (dict "image" .Values.runner.image "field" "runner.image") }}
+{{- include "dagger-runners.requirePinnedImage" (dict "image" .Values.kubectlImage "field" "kubectlImage") }}
+{{- end }}
 {{- $sortedVersions := .Values.daggerVersions | sortAlpha }}
 {{- $latestVersion := index $sortedVersions (sub (len $sortedVersions) 1) }}
 

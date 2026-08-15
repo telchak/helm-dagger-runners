@@ -82,7 +82,25 @@ github:
 
 runner:
   # -- Container image for the GitHub Actions runner.
-  image: "ghcr.io/actions/actions-runner:latest"
+  #
+  # MUST be a pinned tag or digest, never `:latest`.
+  #
+  # Runner pods use imagePullPolicy: IfNotPresent, because Always with dozens of
+  # pods starting at once exceeds registry pull QPS. The consequence is that a
+  # floating tag freezes: every node keeps serving whatever it cached first and
+  # never sees a new push, indefinitely and silently.
+  #
+  # That is not merely stale. Runner 2.334.0 makes the ARC controller mark
+  # healthy, running runners Outdated — tearing down the runner, the
+  # EphemeralRunnerSet, the listener and the GitHub registration, then stranding
+  # the AutoscalingRunnerSet in Outdated permanently. No runners, no error in
+  # the logs, and every job queued forever.
+  # See https://github.com/actions/actions-runner-controller/issues/4596 — it
+  # reproduces on controller 0.14.0, 0.14.1 and 0.14.2 alike, because the runner
+  # version is the variable, not the controller.
+  #
+  # Bump this deliberately; `helm upgrade` is how runners get updated here.
+  image: "ghcr.io/actions/actions-runner:2.336.0"
 
   # -- Minimum runners per exact-version scale set.
   minRunners: 18
@@ -116,5 +134,22 @@ podCleanup:
 # Images
 # =============================================================================
 
-# -- kubectl image used by cleanup CronJob and StatefulSet init container.
-kubectlImage: "bitnami/kubectl:latest"
+# -- kubectl image used by the cleanup CronJob and the StatefulSet init
+# container.
+#
+# Pinned by digest rather than tag: Bitnami retired versioned tags on Docker Hub,
+# leaving only `latest`, and `latest` combined with imagePullPolicy IfNotPresent
+# freezes on whatever each node cached first. A digest is immutable, so
+# IfNotPresent is exactly right for it.
+#
+# This digest is kubectl 1.36.3. To refresh:
+#   skopeo inspect docker://docker.io/bitnami/kubectl:latest | jq -r .Digest
+kubectlImage: "bitnami/kubectl@sha256:f0c03a7e99bd3b22085328bf747082d8d689f362dac4b1277dc9b6a85c07fce4"
+
+# -- Escape hatch for the pinned-image check.
+#
+# Every image here is pulled with IfNotPresent, so a floating tag such as
+# `:latest` freezes on whatever each node cached first and can never be updated.
+# The chart refuses to render in that case. Set this to true only if you
+# genuinely want that behaviour and understand the consequence.
+allowFloatingTags: false

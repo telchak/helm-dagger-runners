@@ -161,11 +161,41 @@ The secret must contain:
 
 | Parameter | Description | Default |
 |---|---|---|
-| `runner.image` | Runner container image | `ghcr.io/actions/actions-runner:latest` |
+| `runner.image` | Runner container image — **must be pinned**, see below | `ghcr.io/actions/actions-runner:2.336.0` |
 | `runner.minRunners` | Min runners per exact-version set | `18` |
 | `runner.maxRunners` | Max runners per scale set | `18` |
 | `runner.aliasMinRunners` | Min runners for alias sets (minor + latest) | `0` |
 | `runner.sizeTemplates` | Map of size suffix → resource requests/limits | see values.yaml |
+
+### Image pinning (important)
+
+All images are pulled with `imagePullPolicy: IfNotPresent`, because `Always`
+with dozens of runner pods starting at once exceeds registry pull QPS.
+
+That makes a floating tag such as `:latest` **unsafe here**, not merely untidy:
+each node keeps serving whatever it cached first and never sees a new push, so
+the deployment silently freezes on an old image with no way to move it forward.
+
+This is not hypothetical. The chart previously defaulted `runner.image` to
+`:latest`, which pinned clusters to runner **2.334.0** indefinitely. That runner
+version makes the ARC controller mark healthy, running runners `Outdated` —
+tearing down the runner, the `EphemeralRunnerSet`, the listener and the GitHub
+registration, then leaving the `AutoscalingRunnerSet` stranded in `Outdated`
+with no runners, no error in the logs, and every job queued forever. See
+[actions/actions-runner-controller#4596](https://github.com/actions/actions-runner-controller/issues/4596);
+it reproduces on controller 0.14.0, 0.14.1 and 0.14.2 alike.
+
+The chart now **refuses to render** if `runner.image` or `kubectlImage` uses a
+floating tag. Override with `allowFloatingTags=true` only if you understand the
+consequence.
+
+Recovering a stranded scale set without a rebuild:
+
+```bash
+kubectl -n arc-runners patch autoscalingrunnerset <name> --subresource=status \
+  --type=merge -p '{"status":{"phase":"Pending","currentRunners":0,
+  "pendingEphemeralRunners":0,"runningEphemeralRunners":0,"failedEphemeralRunners":0}}'
+```
 
 ### Runner Labels
 

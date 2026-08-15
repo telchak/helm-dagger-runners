@@ -69,10 +69,28 @@ kube-pod://{{ include "dagger-runners.engineStatefulSetPod" .version }}?namespac
 {{- end -}}
 
 {{/*
-Image pull policy derived from tag.
+Reject floating image tags.
+
+Every image here is pulled with imagePullPolicy: IfNotPresent, because Always
+with dozens of pods starting at once exceeds registry pull QPS. That makes a
+floating tag actively dangerous rather than merely sloppy: each node serves
+whatever it cached first and never sees a new push, so the deployment silently
+freezes on an old image with no way to move it forward.
+
+That is how this chart shipped runner 2.334.0 indefinitely, which strands every
+AutoscalingRunnerSet in Outdated with no runners and no errors
+(actions/actions-runner-controller#4596).
+
+Usage: {{ include "dagger-runners.requirePinnedImage" (dict "image" $img "field" "runner.image") }}
+
+Set allowFloatingTags: true to downgrade this to a NOTES.txt warning.
 */}}
-{{- define "dagger-runners.imagePullPolicy" -}}
-{{- if hasSuffix ":latest" . -}}Always{{- else -}}IfNotPresent{{- end -}}
+{{- define "dagger-runners.requirePinnedImage" -}}
+{{- $image := .image -}}
+{{- $field := .field -}}
+{{- if or (hasSuffix ":latest" $image) (not (or (contains ":" (last (splitList "/" $image))) (contains "@" $image))) -}}
+{{- fail (printf "\n\n%s is %q, which is a floating tag.\n\nImages here are pulled with IfNotPresent, so a floating tag freezes on whatever each node cached first and can never be updated. Pin a version or a digest.\n\nSee values.yaml for why this matters, and actions/actions-runner-controller#4596 for what it caused.\nTo override anyway: --set allowFloatingTags=true\n" $field $image) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
