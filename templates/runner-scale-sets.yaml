@@ -2,29 +2,73 @@
 {{/*
 Runner Scale Sets — AutoscalingRunnerSet CRs for ARC.
 
-Generates the following runner labels:
-  - dagger-v0.20.3       (exact version)
-  - dagger-v0.20         (minor alias → latest patch in that minor)
+For each GitHub config, generates the following runner labels:
+  - dagger-v0.21.8       (exact version)
+  - dagger-v0.21         (minor alias → latest patch in that minor)
   - dagger-latest        (always the highest version)
 
 Each is cross-multiplied with sizeTemplates (if defined).
+
+Labels are per GitHub scope, so two configs may both expose `dagger-v0.21.8`
+without colliding — a workflow in one org can never see another org's runners.
+Only the Kubernetes object names have to be unique, which is what namePrefix
+is for.
+
+Every scale set renders through the dagger-runners.scaleSet helper; the pod
+spec lives there exactly once.
 */}}
 
 {{- $root := . }}
-{{- $engineMode := .Values.engineMode }}
 
 {{/* Fail fast on floating tags — see the helper for why this is fatal here. */}}
 {{- if not .Values.allowFloatingTags }}
 {{- include "dagger-runners.requirePinnedImage" (dict "image" .Values.runner.image "field" "runner.image") }}
 {{- include "dagger-runners.requirePinnedImage" (dict "image" .Values.kubectlImage "field" "kubectlImage") }}
 {{- end }}
+
 {{- $sortedVersions := .Values.daggerVersions | sortAlpha }}
 {{- $latestVersion := index $sortedVersions (sub (len $sortedVersions) 1) }}
 
-{{/* Determine the secret name */}}
-{{- $secretName := .Values.github.app.secretName }}
-{{- if .Values.github.app.existingSecretName }}
-{{- $secretName = .Values.github.app.existingSecretName }}
+{{/*
+Normalize the config list.
+
+githubConfigs is the current form. When it is empty we synthesize a single
+entry from the legacy top-level `github` block, with an empty namePrefix, so
+that charts upgrading from <=0.2.0 keep their existing object names. Renaming a
+live AutoscalingRunnerSet deletes and recreates it, dropping every runner
+registration with it, so this fallback is load-bearing rather than cosmetic.
+*/}}
+{{- $configs := list }}
+{{- if .Values.githubConfigs }}
+  {{- range $i, $cfg := .Values.githubConfigs }}
+    {{- if not $cfg.configUrl }}
+    {{- fail (printf "\n\ngithubConfigs[%d] has no configUrl.\n\nEach entry needs the GitHub org or repository URL the runners register against, e.g.\n  githubConfigs:\n    - name: secplane\n      configUrl: https://github.com/secplane\n" $i) }}
+    {{- end }}
+    {{- if not $cfg.name }}
+    {{- fail (printf "\n\ngithubConfigs[%d] (%s) has no name.\n\nname identifies the config in labels and, unless namePrefix is set explicitly, prefixes the Kubernetes object names so multiple configs can coexist.\n" $i $cfg.configUrl) }}
+    {{- end }}
+    {{/* namePrefix defaults to "<name>-"; set it to "" to keep unprefixed names. */}}
+    {{- $prefix := $cfg.name | printf "%s-" }}
+    {{- if hasKey $cfg "namePrefix" }}
+    {{- $prefix = $cfg.namePrefix }}
+    {{- end }}
+    {{- $configs = append $configs (merge (dict "_prefix" $prefix) $cfg) }}
+  {{- end }}
+{{- else }}
+  {{- if not .Values.github.configUrl }}
+  {{- fail "\n\nNo GitHub config found.\n\nSet githubConfigs (preferred):\n  githubConfigs:\n    - name: myorg\n      configUrl: https://github.com/myorg\n      app:\n        existingSecretName: gh-app-credentials\n\nor the legacy single-config github.configUrl.\n" }}
+  {{- end }}
+  {{- $configs = list (dict "_prefix" "" "name" "" "configUrl" .Values.github.configUrl "app" .Values.github.app "runner" dict) }}
+{{- end }}
+
+{{/* Reject duplicate object-name prefixes — Helm would silently render two
+     objects with the same name and only the last would survive. */}}
+{{- $seenPrefixes := dict }}
+{{- range $cfg := $configs }}
+  {{- if hasKey $seenPrefixes $cfg._prefix }}
+  {{- fail (printf "\n\nTwo githubConfigs resolve to the same object-name prefix %q (%s and %s).\n\nGive each config a distinct name, or set namePrefix explicitly.\n" $cfg._prefix (get $seenPrefixes $cfg._prefix) $cfg.configUrl) }}
+  {{- end }}
+  {{- $_ := set $seenPrefixes $cfg._prefix $cfg.configUrl }}
 {{- end }}
 
 {{/* Build a dict of minor -> latest patch version for alias dedup */}}
@@ -34,117 +78,25 @@ Each is cross-multiplied with sizeTemplates (if defined).
   {{- $_ := set $minorLatest $minor . }}
 {{- end }}
 
+{{- range $cfg := $configs }}
+{{- $runnerCfg := $cfg.runner | default dict }}
+{{- $minRunners := $runnerCfg.minRunners | default $root.Values.runner.minRunners }}
+{{- $aliasMinRunners := $runnerCfg.aliasMinRunners | default $root.Values.runner.aliasMinRunners }}
+
 {{/* === Exact version sets === */}}
 {{- range $version := $sortedVersions }}
 {{- $vDashed := replace "." "-" $version }}
-{{- $engineRunnerHost := include "dagger-runners.engineRunnerHost" (dict "version" $version "mode" $engineMode "namespace" $root.Release.Namespace) }}
-{{- $engineSocketPath := include "dagger-runners.engineSocketPath" $version }}
-
 {{- range $sizeName, $sizeConfig := $root.Values.runner.sizeTemplates }}
-{{- $nameSuffix := ternary (printf "-%s" $sizeName) "" (ne $sizeName "") }}
-{{- $labelSuffix := $nameSuffix }}
----
-apiVersion: actions.github.com/v1alpha1
-kind: AutoscalingRunnerSet
-metadata:
-  name: dagger-v{{ $vDashed }}{{ $nameSuffix }}
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "dagger-runners.runnerLabels" $root | nindent 4 }}
-    app.kubernetes.io/component: runner-scale-set
-    dagger.io/version: {{ $version | quote }}
-spec:
-  githubConfigUrl: {{ $root.Values.github.configUrl }}
-  githubConfigSecret: {{ $secretName }}
-  runnerScaleSetName: dagger-v{{ $version }}{{ $labelSuffix }}
-  minRunners: {{ $root.Values.runner.minRunners }}
-  maxRunners: {{ $root.Values.runner.maxRunners }}
-  template:
-    metadata:
-      annotations:
-        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
-    spec:
-      {{- if eq $engineMode "statefulset" }}
-      serviceAccountName: dagger-runner
-      {{- end }}
-      restartPolicy: Never
-      initContainers:
-        - name: init-runner-externals
-          image: {{ $root.Values.runner.image }}
-          imagePullPolicy: IfNotPresent
-          command: ["cp"]
-          args: ["-r", "-v", "/home/runner/externals/.", "/home/runner/tmpDir/"]
-          volumeMounts:
-            - name: runner-externals
-              mountPath: /home/runner/tmpDir
-        {{- if eq $engineMode "statefulset" }}
-        - name: init-kubectl
-          image: {{ $root.Values.kubectlImage }}
-          imagePullPolicy: IfNotPresent
-          command: ["cp"]
-          args: ["/opt/bitnami/kubectl/bin/kubectl", "/shared-bin/kubectl"]
-          volumeMounts:
-            - name: shared-bin
-              mountPath: /shared-bin
-        {{- end }}
-      containers:
-        - name: runner
-          image: {{ $root.Values.runner.image }}
-          imagePullPolicy: IfNotPresent
-          command: ["/home/runner/run.sh"]
-          env:
-            - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
-              value: {{ $engineRunnerHost | quote }}
-            {{- if eq $engineMode "statefulset" }}
-            - name: PATH
-              value: /shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-            {{- end }}
-            {{- if $root.Values.daggerCloudToken }}
-            - name: DAGGER_CLOUD_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: dagger-cloud-token
-                  key: token
-            {{- end }}
-          volumeMounts:
-            - name: work
-              mountPath: /home/runner/_work
-            {{- if eq $engineMode "daemonset" }}
-            - name: dagger-socket
-              mountPath: /run/dagger
-              readOnly: true
-            {{- end }}
-            {{- if eq $engineMode "statefulset" }}
-            - name: shared-bin
-              mountPath: /shared-bin
-              readOnly: true
-            {{- end }}
-          {{- if or $sizeConfig.requests $sizeConfig.limits }}
-          resources:
-            {{- if $sizeConfig.requests }}
-            requests:
-              {{- toYaml $sizeConfig.requests | nindent 14 }}
-            {{- end }}
-            {{- if $sizeConfig.limits }}
-            limits:
-              {{- toYaml $sizeConfig.limits | nindent 14 }}
-            {{- end }}
-          {{- end }}
-      volumes:
-        - name: runner-externals
-          emptyDir: {}
-        - name: work
-          emptyDir: {}
-        {{- if eq $engineMode "daemonset" }}
-        - name: dagger-socket
-          hostPath:
-            path: {{ $engineSocketPath }}
-            type: DirectoryOrCreate
-        {{- end }}
-        {{- if eq $engineMode "statefulset" }}
-        - name: shared-bin
-          emptyDir: {}
-        {{- end }}
+{{- $suffix := ternary (printf "-%s" $sizeName) "" (ne $sizeName "") }}
+{{- include "dagger-runners.scaleSet" (dict
+      "root" $root
+      "config" $cfg
+      "sizeConfig" $sizeConfig
+      "engineVersion" $version
+      "name" (printf "%sdagger-v%s%s" $cfg._prefix $vDashed $suffix)
+      "scaleSetName" (printf "dagger-v%s%s" $version $suffix)
+      "minRunners" $minRunners
+      "extraLabels" (dict "dagger.io/version" $version)) }}
 {{- end }}{{/* range sizeTemplates */}}
 {{- end }}{{/* range exact versions */}}
 
@@ -152,227 +104,34 @@ spec:
 {{- range $minor, $version := $minorLatest }}
 {{- if ne $minor $version }}{{/* skip if minor == version (no patch component) */}}
 {{- $minorDashed := replace "." "-" $minor }}
-{{- $engineRunnerHost := include "dagger-runners.engineRunnerHost" (dict "version" $version "mode" $engineMode "namespace" $root.Release.Namespace) }}
-{{- $engineSocketPath := include "dagger-runners.engineSocketPath" $version }}
-
 {{- range $sizeName, $sizeConfig := $root.Values.runner.sizeTemplates }}
-{{- $nameSuffix := ternary (printf "-%s" $sizeName) "" (ne $sizeName "") }}
-{{- $labelSuffix := $nameSuffix }}
----
-apiVersion: actions.github.com/v1alpha1
-kind: AutoscalingRunnerSet
-metadata:
-  name: dagger-v{{ $minorDashed }}-alias{{ $nameSuffix }}
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "dagger-runners.runnerLabels" $root | nindent 4 }}
-    app.kubernetes.io/component: runner-scale-set
-    dagger.io/alias-for: {{ $version | quote }}
-spec:
-  githubConfigUrl: {{ $root.Values.github.configUrl }}
-  githubConfigSecret: {{ $secretName }}
-  runnerScaleSetName: dagger-v{{ $minor }}{{ $labelSuffix }}
-  minRunners: {{ $root.Values.runner.aliasMinRunners }}
-  maxRunners: {{ $root.Values.runner.maxRunners }}
-  template:
-    metadata:
-      annotations:
-        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
-    spec:
-      {{- if eq $engineMode "statefulset" }}
-      serviceAccountName: dagger-runner
-      {{- end }}
-      restartPolicy: Never
-      initContainers:
-        - name: init-runner-externals
-          image: {{ $root.Values.runner.image }}
-          imagePullPolicy: IfNotPresent
-          command: ["cp"]
-          args: ["-r", "-v", "/home/runner/externals/.", "/home/runner/tmpDir/"]
-          volumeMounts:
-            - name: runner-externals
-              mountPath: /home/runner/tmpDir
-        {{- if eq $engineMode "statefulset" }}
-        - name: init-kubectl
-          image: {{ $root.Values.kubectlImage }}
-          imagePullPolicy: IfNotPresent
-          command: ["cp"]
-          args: ["/opt/bitnami/kubectl/bin/kubectl", "/shared-bin/kubectl"]
-          volumeMounts:
-            - name: shared-bin
-              mountPath: /shared-bin
-        {{- end }}
-      containers:
-        - name: runner
-          image: {{ $root.Values.runner.image }}
-          imagePullPolicy: IfNotPresent
-          command: ["/home/runner/run.sh"]
-          env:
-            - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
-              value: {{ $engineRunnerHost | quote }}
-            {{- if eq $engineMode "statefulset" }}
-            - name: PATH
-              value: /shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-            {{- end }}
-            {{- if $root.Values.daggerCloudToken }}
-            - name: DAGGER_CLOUD_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: dagger-cloud-token
-                  key: token
-            {{- end }}
-          volumeMounts:
-            - name: work
-              mountPath: /home/runner/_work
-            {{- if eq $engineMode "daemonset" }}
-            - name: dagger-socket
-              mountPath: /run/dagger
-              readOnly: true
-            {{- end }}
-            {{- if eq $engineMode "statefulset" }}
-            - name: shared-bin
-              mountPath: /shared-bin
-              readOnly: true
-            {{- end }}
-          {{- if or $sizeConfig.requests $sizeConfig.limits }}
-          resources:
-            {{- if $sizeConfig.requests }}
-            requests:
-              {{- toYaml $sizeConfig.requests | nindent 14 }}
-            {{- end }}
-            {{- if $sizeConfig.limits }}
-            limits:
-              {{- toYaml $sizeConfig.limits | nindent 14 }}
-            {{- end }}
-          {{- end }}
-      volumes:
-        - name: runner-externals
-          emptyDir: {}
-        - name: work
-          emptyDir: {}
-        {{- if eq $engineMode "daemonset" }}
-        - name: dagger-socket
-          hostPath:
-            path: {{ $engineSocketPath }}
-            type: DirectoryOrCreate
-        {{- end }}
-        {{- if eq $engineMode "statefulset" }}
-        - name: shared-bin
-          emptyDir: {}
-        {{- end }}
+{{- $suffix := ternary (printf "-%s" $sizeName) "" (ne $sizeName "") }}
+{{- include "dagger-runners.scaleSet" (dict
+      "root" $root
+      "config" $cfg
+      "sizeConfig" $sizeConfig
+      "engineVersion" $version
+      "name" (printf "%sdagger-v%s-alias%s" $cfg._prefix $minorDashed $suffix)
+      "scaleSetName" (printf "dagger-v%s%s" $minor $suffix)
+      "minRunners" $aliasMinRunners
+      "extraLabels" (dict "dagger.io/alias-for" $version)) }}
 {{- end }}{{/* range sizeTemplates */}}
 {{- end }}{{/* if ne minor version */}}
 {{- end }}{{/* range minorLatest */}}
 
 {{/* === Latest alias === */}}
-{{- $latestEngineRunnerHost := include "dagger-runners.engineRunnerHost" (dict "version" $latestVersion "mode" $engineMode "namespace" $root.Release.Namespace) }}
-{{- $latestEngineSocketPath := include "dagger-runners.engineSocketPath" $latestVersion }}
-
-{{- range $sizeName, $sizeConfig := .Values.runner.sizeTemplates }}
-{{- $nameSuffix := ternary (printf "-%s" $sizeName) "" (ne $sizeName "") }}
-{{- $labelSuffix := $nameSuffix }}
----
-apiVersion: actions.github.com/v1alpha1
-kind: AutoscalingRunnerSet
-metadata:
-  name: dagger-latest{{ $nameSuffix }}
-  namespace: {{ $root.Release.Namespace }}
-  labels:
-    {{- include "dagger-runners.runnerLabels" $root | nindent 4 }}
-    app.kubernetes.io/component: runner-scale-set
-    dagger.io/alias-for: {{ $latestVersion | quote }}
-spec:
-  githubConfigUrl: {{ $root.Values.github.configUrl }}
-  githubConfigSecret: {{ $secretName }}
-  runnerScaleSetName: dagger-latest{{ $labelSuffix }}
-  minRunners: {{ $root.Values.runner.aliasMinRunners }}
-  maxRunners: {{ $root.Values.runner.maxRunners }}
-  template:
-    metadata:
-      annotations:
-        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
-    spec:
-      {{- if eq $engineMode "statefulset" }}
-      serviceAccountName: dagger-runner
-      {{- end }}
-      restartPolicy: Never
-      initContainers:
-        - name: init-runner-externals
-          image: {{ $root.Values.runner.image }}
-          imagePullPolicy: IfNotPresent
-          command: ["cp"]
-          args: ["-r", "-v", "/home/runner/externals/.", "/home/runner/tmpDir/"]
-          volumeMounts:
-            - name: runner-externals
-              mountPath: /home/runner/tmpDir
-        {{- if eq $engineMode "statefulset" }}
-        - name: init-kubectl
-          image: {{ $root.Values.kubectlImage }}
-          imagePullPolicy: IfNotPresent
-          command: ["cp"]
-          args: ["/opt/bitnami/kubectl/bin/kubectl", "/shared-bin/kubectl"]
-          volumeMounts:
-            - name: shared-bin
-              mountPath: /shared-bin
-        {{- end }}
-      containers:
-        - name: runner
-          image: {{ $root.Values.runner.image }}
-          imagePullPolicy: IfNotPresent
-          command: ["/home/runner/run.sh"]
-          env:
-            - name: _EXPERIMENTAL_DAGGER_RUNNER_HOST
-              value: {{ $latestEngineRunnerHost | quote }}
-            {{- if eq $engineMode "statefulset" }}
-            - name: PATH
-              value: /shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-            {{- end }}
-            {{- if $root.Values.daggerCloudToken }}
-            - name: DAGGER_CLOUD_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: dagger-cloud-token
-                  key: token
-            {{- end }}
-          volumeMounts:
-            - name: work
-              mountPath: /home/runner/_work
-            {{- if eq $engineMode "daemonset" }}
-            - name: dagger-socket
-              mountPath: /run/dagger
-              readOnly: true
-            {{- end }}
-            {{- if eq $engineMode "statefulset" }}
-            - name: shared-bin
-              mountPath: /shared-bin
-              readOnly: true
-            {{- end }}
-          {{- if or $sizeConfig.requests $sizeConfig.limits }}
-          resources:
-            {{- if $sizeConfig.requests }}
-            requests:
-              {{- toYaml $sizeConfig.requests | nindent 14 }}
-            {{- end }}
-            {{- if $sizeConfig.limits }}
-            limits:
-              {{- toYaml $sizeConfig.limits | nindent 14 }}
-            {{- end }}
-          {{- end }}
-      volumes:
-        - name: runner-externals
-          emptyDir: {}
-        - name: work
-          emptyDir: {}
-        {{- if eq $engineMode "daemonset" }}
-        - name: dagger-socket
-          hostPath:
-            path: {{ $latestEngineSocketPath }}
-            type: DirectoryOrCreate
-        {{- end }}
-        {{- if eq $engineMode "statefulset" }}
-        - name: shared-bin
-          emptyDir: {}
-        {{- end }}
+{{- range $sizeName, $sizeConfig := $root.Values.runner.sizeTemplates }}
+{{- $suffix := ternary (printf "-%s" $sizeName) "" (ne $sizeName "") }}
+{{- include "dagger-runners.scaleSet" (dict
+      "root" $root
+      "config" $cfg
+      "sizeConfig" $sizeConfig
+      "engineVersion" $latestVersion
+      "name" (printf "%sdagger-latest%s" $cfg._prefix $suffix)
+      "scaleSetName" (printf "dagger-latest%s" $suffix)
+      "minRunners" $aliasMinRunners
+      "extraLabels" (dict "dagger.io/alias-for" $latestVersion)) }}
 {{- end }}{{/* range sizeTemplates */}}
 
+{{- end }}{{/* range configs */}}
 {{- end }}{{/* if provider == github */}}

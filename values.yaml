@@ -60,6 +60,50 @@ arcControllerVersion: ""
 # GitHub Provider Configuration
 # =============================================================================
 
+# -- GitHub scopes to serve runners for.
+#
+# Every entry gets its own set of scale sets (exact version, minor alias and
+# latest alias) against the SAME Dagger engines. The engine is the expensive
+# part — a StatefulSet with a 100Gi cache PVC and a multi-Gi memory
+# reservation — while a scale set is a handful of small pods, so serving
+# several orgs from one engine costs far less than one deployment per org.
+#
+# Runner labels are per GitHub scope, so every config exposes the same
+# `dagger-v<version>` labels without colliding: a workflow in one org can never
+# see another org's runners. Only the Kubernetes object names must be unique,
+# which is what namePrefix handles.
+#
+# Example:
+#   githubConfigs:
+#     - name: daggerverse
+#       namePrefix: ""                       # keep pre-0.3.0 object names
+#       configUrl: https://github.com/telchak/daggerverse
+#       app:
+#         existingSecretName: gh-app-credentials
+#     - name: secplane
+#       configUrl: https://github.com/secplane   # org-wide: every repo
+#       app:
+#         existingSecretName: gh-app-secplane
+#       runner:
+#         minRunners: 4                      # override the global default
+#
+# Per-entry fields:
+#   name         (required) identifies the config in labels; prefixes object
+#                names unless namePrefix is set.
+#   configUrl    (required) GitHub org URL for org-wide runners, or a
+#                repository URL to scope them to a single repo.
+#   namePrefix   (optional) overrides the "<name>-" object-name prefix. Set to
+#                "" to keep names unprefixed — needed when adding a second
+#                config to an existing release, since renaming a live
+#                AutoscalingRunnerSet deletes and recreates it.
+#   app          (optional) per-config credentials; falls back to github.app.
+#   runner       (optional) per-config minRunners/maxRunners/aliasMinRunners.
+#
+# Leave empty to use the legacy single-config `github` block below.
+githubConfigs: []
+
+# -- Legacy single-config form. Used only when githubConfigs is empty.
+# Prefer githubConfigs, which supports one or many scopes.
 github:
   # -- GitHub organization or repository URL.
   configUrl: ""

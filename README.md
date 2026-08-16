@@ -118,6 +118,53 @@ The secret must contain:
 | `github_app_installation_id` | Installation ID |
 | `github_app_private_key` | PEM-encoded private key |
 
+### Serving several GitHub orgs from one engine
+
+`githubConfigs` lets one release serve runners to multiple GitHub scopes —
+several orgs, or an org plus a standalone repo — all sharing the same Dagger
+engines:
+
+```yaml
+githubConfigs:
+  - name: daggerverse
+    namePrefix: ""                                   # keep pre-0.3.0 names
+    configUrl: https://github.com/telchak/daggerverse
+    app:
+      existingSecretName: gh-app-credentials
+  - name: secplane
+    configUrl: https://github.com/secplane           # org-wide: every repo
+    app:
+      existingSecretName: gh-app-secplane
+    runner:
+      minRunners: 4                                  # per-config override
+```
+
+This is deliberately cheaper than one release per org. The engine is the
+expensive component — a StatefulSet with a 100Gi cache PVC and a multi-Gi
+memory reservation — while a scale set is a handful of 256Mi pods. Two orgs on
+one engine also share the build cache.
+
+Each config needs its own GitHub App installation, hence its own secret: an App
+installed on one org cannot register runners for another.
+
+**Runner labels are per GitHub scope.** Every config exposes the same
+`dagger-v<version>` labels, and they do not collide — a workflow in one org can
+never see another org's runners. Only the Kubernetes object names must differ,
+which is what `namePrefix` is for:
+
+| Config | Object name | `runs-on` label |
+|---|---|---|
+| `daggerverse` (`namePrefix: ""`) | `dagger-v0-21-8` | `dagger-v0.21.8` |
+| `secplane` | `secplane-dagger-v0-21-8` | `dagger-v0.21.8` |
+
+> **Upgrading from ≤0.2.0:** set `namePrefix: ""` on the config that matches
+> your existing deployment. Renaming a live `AutoscalingRunnerSet` deletes and
+> recreates it, taking every runner registration with it. With that set, the
+> rendered output is byte-identical to 0.2.0.
+
+Omitting `githubConfigs` falls back to the single-config `github` block, which
+still works unchanged.
+
 ## Configuration Reference
 
 ### Core
@@ -199,12 +246,13 @@ kubectl -n arc-runners patch autoscalingrunnerset <name> --subresource=status \
 
 ### Runner Labels
 
-For each Dagger version in `daggerVersions`, the chart creates three `AutoscalingRunnerSet` resources:
+For each Dagger version in `daggerVersions`, and for each entry in
+`githubConfigs`, the chart creates three `AutoscalingRunnerSet` resources:
 
 | Label | Description |
 |---|---|
-| `dagger-v0.20.3` | Exact version |
-| `dagger-v0.20` | Minor alias (points to latest patch in that minor) |
+| `dagger-v0.21.8` | Exact version |
+| `dagger-v0.21` | Minor alias (points to latest patch in that minor) |
 | `dagger-latest` | Always the highest version in the list |
 
 Use these as `runs-on` labels in your GitHub Actions workflows:
