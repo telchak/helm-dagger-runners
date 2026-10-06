@@ -162,6 +162,33 @@ which is what `namePrefix` is for:
 > recreates it, taking every runner registration with it. With that set, the
 > rendered output is byte-identical to 0.2.0.
 
+#### Pinning one org to a different engine
+
+By default every config gets scale sets for every version in the global
+`daggerVersions`. A config can set its own `daggerVersions` instead — to try a
+beta engine in one org without exposing it to the others:
+
+```yaml
+daggerVersions:
+  - "0.21.8"                                         # default for every config
+githubConfigs:
+  - name: secplane
+    configUrl: https://github.com/secplane           # inherits 0.21.8
+    app:
+      existingSecretName: gh-app-secplane
+  - name: prairialab
+    configUrl: https://github.com/prairialab
+    daggerVersions:
+      - "1.0.0-beta.15"                              # this org only
+    app:
+      existingSecretName: gh-app-prairialab
+```
+
+The chart deploys one engine per distinct version across the global list and
+every per-config list, so this runs two engines, each with its own cache PVC.
+`dagger-latest` and the minor aliases resolve within each config's own list:
+adding a newer version to one org never moves another org's `dagger-latest`.
+
 Omitting `githubConfigs` falls back to the single-config `github` block, which
 still works unchanged.
 
@@ -172,7 +199,7 @@ still works unchanged.
 | Parameter | Description | Default |
 |---|---|---|
 | `provider` | CI provider (`github` only currently) | `github` |
-| `daggerVersions` | List of Dagger engine versions to deploy | `["0.20.3"]` |
+| `daggerVersions` | Dagger engine versions to deploy; the default list for every `githubConfigs` entry, which may override it with its own `daggerVersions` | `["0.20.3"]` |
 | `engineMode` | `statefulset` or `daemonset` | `statefulset` |
 
 ### Dagger Engine
@@ -246,8 +273,9 @@ kubectl -n arc-runners patch autoscalingrunnerset <name> --subresource=status \
 
 ### Runner Labels
 
-For each Dagger version in `daggerVersions`, and for each entry in
-`githubConfigs`, the chart creates three `AutoscalingRunnerSet` resources:
+For each entry in `githubConfigs`, and for each Dagger version that entry
+serves (its own `daggerVersions`, else the global list), the chart creates
+three `AutoscalingRunnerSet` resources:
 
 | Label | Description |
 |---|---|
@@ -324,7 +352,7 @@ The two most impactful missing features are **VPA support** and **ARC controller
 
 ## How It Works Internally
 
-1. **`dagger-engine.yaml`** — renders one Flux `HelmRelease` per version in `daggerVersions`. Flux then pulls the upstream `dagger-helm` chart from `oci://registry.dagger.io` and deploys the engine as a StatefulSet or DaemonSet.
+1. **`dagger-engine.yaml`** — renders one Flux `HelmRelease` per distinct version across the global `daggerVersions` and every `githubConfigs[].daggerVersions`. Flux then pulls the upstream `dagger-helm` chart from `oci://registry.dagger.io` and deploys the engine as a StatefulSet or DaemonSet.
 
 2. **`runner-scale-sets.yaml`** — renders `AutoscalingRunnerSet` CRs for every combination of version × size template × alias tier (exact, minor, latest). ARC picks these up and scales runner pods on demand.
 

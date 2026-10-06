@@ -16,6 +16,10 @@ provider: github
 #   - dagger-v0.20.3  (exact match)
 #   - dagger-v0.20    (minor alias, points to latest patch in that minor)
 #   - dagger-latest   (always the highest version in this list)
+#
+# This is also the default version list for every githubConfigs entry. An
+# entry can set its own daggerVersions instead; its engines are deployed
+# alongside these, and its aliases resolve within its own list only.
 daggerVersions:
   - "0.20.3"
 
@@ -98,6 +102,10 @@ arcControllerVersion: ""
 #                AutoscalingRunnerSet deletes and recreates it.
 #   app          (optional) per-config credentials; falls back to github.app.
 #   runner       (optional) per-config minRunners/maxRunners/aliasMinRunners.
+#   daggerVersions (optional) the engine versions this config gets scale sets
+#                for; falls back to the global daggerVersions. Use it to put
+#                one org on an engine the others should not see, e.g. a beta.
+#                dagger-latest and the minor aliases resolve within this list.
 #
 # Leave empty to use the legacy single-config `github` block below.
 githubConfigs: []

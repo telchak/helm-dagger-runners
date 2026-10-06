@@ -26,9 +26,6 @@ spec lives there exactly once.
 {{- include "dagger-runners.requirePinnedImage" (dict "image" .Values.kubectlImage "field" "kubectlImage") }}
 {{- end }}
 
-{{- $sortedVersions := .Values.daggerVersions | sortAlpha }}
-{{- $latestVersion := index $sortedVersions (sub (len $sortedVersions) 1) }}
-
 {{/*
 Normalize the config list.
 
@@ -71,17 +68,31 @@ registration with it, so this fallback is load-bearing rather than cosmetic.
   {{- $_ := set $seenPrefixes $cfg._prefix $cfg.configUrl }}
 {{- end }}
 
-{{/* Build a dict of minor -> latest patch version for alias dedup */}}
+{{- range $cfg := $configs }}
+{{- $runnerCfg := $cfg.runner | default dict }}
+{{- $minRunners := $runnerCfg.minRunners | default $root.Values.runner.minRunners }}
+{{- $aliasMinRunners := $runnerCfg.aliasMinRunners | default $root.Values.runner.aliasMinRunners }}
+
+{{- /*
+Versions this config gets scale sets for: its own daggerVersions when set,
+otherwise the global list. The minor and latest aliases are resolved within
+this list, so pinning one org to a new engine (a beta, say) never moves
+another org's dagger-latest onto it, nor gives that org a scale set it did
+not ask for.
+*/}}
+{{- $versions := $cfg.daggerVersions | default $root.Values.daggerVersions }}
+{{- if not $versions }}
+{{- fail (printf "\n\ngithubConfigs entry %q has no Dagger versions.\n\nSet daggerVersions on the entry, or the global daggerVersions it falls back to.\n" ($cfg.name | default $cfg.configUrl)) }}
+{{- end }}
+{{- $sortedVersions := $versions | sortAlpha }}
+{{- $latestVersion := last $sortedVersions }}
+
+{{- /* Build a dict of minor -> latest patch version for alias dedup */}}
 {{- $minorLatest := dict }}
 {{- range $sortedVersions }}
   {{- $minor := include "dagger-runners.minorVersion" . }}
   {{- $_ := set $minorLatest $minor . }}
 {{- end }}
-
-{{- range $cfg := $configs }}
-{{- $runnerCfg := $cfg.runner | default dict }}
-{{- $minRunners := $runnerCfg.minRunners | default $root.Values.runner.minRunners }}
-{{- $aliasMinRunners := $runnerCfg.aliasMinRunners | default $root.Values.runner.aliasMinRunners }}
 
 {{/* === Exact version sets === */}}
 {{- range $version := $sortedVersions }}
