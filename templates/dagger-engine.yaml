@@ -5,9 +5,21 @@ manages the upstream dagger-helm chart lifecycle.
 
 Requires a HelmRepository "dagger" pointing to oci://registry.dagger.io
 to exist in the same namespace or in flux-system.
+
+Engines are the union of the global daggerVersions and every
+githubConfigs[].daggerVersions, deduplicated: a version shared by several
+configs still runs exactly one engine.
 */}}
+{{- $engineVersions := dict }}
 {{- range .Values.daggerVersions }}
-{{- $version := . }}
+{{- $_ := set $engineVersions . true }}
+{{- end }}
+{{- range .Values.githubConfigs }}
+{{- range (.daggerVersions | default list) }}
+{{- $_ := set $engineVersions . true }}
+{{- end }}
+{{- end }}
+{{- range $version, $_ := $engineVersions }}
 {{- $vDashed := replace "." "-" $version }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
