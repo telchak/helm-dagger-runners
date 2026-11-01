@@ -239,6 +239,7 @@ still works unchanged.
 | `runner.minRunners` | Min runners per exact-version set | `18` |
 | `runner.maxRunners` | Max runners per scale set | `18` |
 | `runner.aliasMinRunners` | Min runners for alias sets (minor + latest) | `0` |
+| `runner.latestMinRunners` | Min runners for the `dagger-latest` set only; `null` uses `aliasMinRunners` | `null` |
 | `runner.sizeTemplates` | Map of size suffix → resource requests/limits | see values.yaml |
 
 ### Image pinning (important)
