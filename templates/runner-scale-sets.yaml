@@ -70,8 +70,19 @@ registration with it, so this fallback is load-bearing rather than cosmetic.
 
 {{- range $cfg := $configs }}
 {{- $runnerCfg := $cfg.runner | default dict }}
-{{- $minRunners := $runnerCfg.minRunners | default $root.Values.runner.minRunners }}
-{{- $aliasMinRunners := $runnerCfg.aliasMinRunners | default $root.Values.runner.aliasMinRunners }}
+{{- /*
+A per-config value wins even when it is 0: `default` treats 0 as unset, so
+`minRunners: 0` on a config used to fall back to the global value.
+*/}}
+{{- $minRunners := ternary $runnerCfg.minRunners $root.Values.runner.minRunners (hasKey $runnerCfg "minRunners") }}
+{{- $aliasMinRunners := ternary $runnerCfg.aliasMinRunners $root.Values.runner.aliasMinRunners (hasKey $runnerCfg "aliasMinRunners") }}
+{{- /* dagger-latest: its own warm pool, falling back to the alias value. */}}
+{{- $latestMinRunners := $aliasMinRunners }}
+{{- if hasKey $runnerCfg "latestMinRunners" }}
+{{- $latestMinRunners = $runnerCfg.latestMinRunners }}
+{{- else if not (kindIs "invalid" $root.Values.runner.latestMinRunners) }}
+{{- $latestMinRunners = $root.Values.runner.latestMinRunners }}
+{{- end }}
 
 {{- /*
 Versions this config gets scale sets for: its own daggerVersions when set,
@@ -140,7 +151,7 @@ not ask for.
       "engineVersion" $latestVersion
       "name" (printf "%sdagger-latest%s" $cfg._prefix $suffix)
       "scaleSetName" (printf "dagger-latest%s" $suffix)
-      "minRunners" $aliasMinRunners
+      "minRunners" $latestMinRunners
       "extraLabels" (dict "dagger.io/alias-for" $latestVersion)) }}
 {{- end }}{{/* range sizeTemplates */}}
 

@@ -101,7 +101,8 @@ arcControllerVersion: ""
 #                config to an existing release, since renaming a live
 #                AutoscalingRunnerSet deletes and recreates it.
 #   app          (optional) per-config credentials; falls back to github.app.
-#   runner       (optional) per-config minRunners/maxRunners/aliasMinRunners.
+#   runner       (optional) per-config minRunners/maxRunners/aliasMinRunners/
+#                latestMinRunners. A per-config 0 is honoured.
 #   daggerVersions (optional) the engine versions this config gets scale sets
 #                for; falls back to the global daggerVersions. Use it to put
 #                one org on an engine the others should not see, e.g. a beta.
@@ -159,8 +160,11 @@ runner:
   # -- Maximum runners per scale set.
   maxRunners: 18
   # -- Minimum runners for alias scale sets (minor + latest).
-  # When null, inherits minRunners.
   aliasMinRunners: 0
+  # -- Minimum runners for the dagger-latest scale set only. When null, it
+  # uses aliasMinRunners. Set it to keep a warm pool behind `runs-on:
+  # dagger-latest` without warming the minor aliases too.
+  latestMinRunners: null
 
   # -- Size templates for runner pods. Each key becomes a label suffix.
   # Use "" (empty string key) for the default size (no suffix).

@@ -138,7 +138,7 @@ Usage:
 {{- $engineMode := $root.Values.engineMode -}}
 {{- $secretName := include "dagger-runners.configSecretName" (dict "config" $cfg "root" $root) -}}
 {{- $runner := $cfg.runner | default dict -}}
-{{- $maxRunners := $runner.maxRunners | default $root.Values.runner.maxRunners -}}
+{{- $maxRunners := ternary $runner.maxRunners $root.Values.runner.maxRunners (hasKey $runner "maxRunners") -}}
 {{- $engineRunnerHost := include "dagger-runners.engineRunnerHost" (dict "version" .engineVersion "mode" $engineMode "namespace" $root.Release.Namespace) -}}
 {{- $engineSocketPath := include "dagger-runners.engineSocketPath" .engineVersion -}}
 ---
